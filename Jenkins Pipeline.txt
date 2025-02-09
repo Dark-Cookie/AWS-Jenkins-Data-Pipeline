@@ -1,0 +1,75 @@
+pipeline {
+    agent any
+
+    environment {
+        ECR_REPOSITORY = "s3-to-rds"
+        REGION = "ap-south-1"
+        AWS_ACCOUNT_ID = "851725387103"
+        IMAGE_NAME = "my-python-app"
+        IMAGE_TAG = "latest"
+    }
+
+    stages {
+        stage('Setup Terraform') {
+            steps {
+                sh 'terraform --version'
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                sh 'terraform init'
+            }
+        }
+        
+        stage('Terraform Plan') {
+            steps {
+                sh 'terraform plan'
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                sh 'terraform apply -auto-approve'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build --no-cache -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+            }
+        }
+
+        stage('Authenticate to AWS ECR') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'my-aws-credentials-id']]) {
+                    sh '''
+                        aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+                        aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+                        aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 851725387103.dkr.ecr.ap-south-1.amazonaws.com
+                    '''
+                }
+            }
+        }
+
+        stage('Tag and Push Docker Image to AWS ECR') {
+            steps {
+                script {
+                    sh '''
+                        docker tag my-python-app:latest 851725387103.dkr.ecr.ap-south-1.amazonaws.com/s3-to-rds:latest
+                        docker push 851725387103.dkr.ecr.ap-south-1.amazonaws.com/s3-to-rds:latest
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline executed successfully!'
+        }
+        failure {
+            echo 'Unfortunately Pipeline failed!'
+        }
+    }
+}
